@@ -2,9 +2,9 @@
 
 ## Context
 
-See `proposal.md` for motivation and scope. The compatibility milestone supplies the agreed dependencies and integration tests, and the first guarded download/resume path is now implemented. The requested flat workspace split and inherited lint policy are implemented. OpenSpec 1.16.0 supplies the `spec-driven` workflow. Initial milestone evidence is recorded in the repository's `docs/compatibility-spike.md`.
+See `proposal.md` for motivation and scope. The first-version download/resume, progress, and interruption contract is implemented, including the requested flat workspace and inherited lint policy. OpenSpec 1.16.0 supplies the `spec-driven` workflow. Initial milestone evidence is in `docs/compatibility-spike.md`; final scenario coverage and proof limits are in `docs/acceptance.md`.
 
-The requested library is treated as `librqbit`. Version 9.1.0 was inspected from its published crate, whose recorded upstream revision is `4309d38769ef93f6ee4f01a1ab147009a197fa8f` under `crates/librqbit`. Cargo.lock now resolves that version, and local tests exercise the dependency/storage seam. The guarded download/resume path is implemented; remaining progress and interruption acceptance checks are tracked in tasks.md.
+The requested library is treated as `librqbit`. Version 9.1.0 was inspected from its published crate, whose recorded upstream revision is `4309d38769ef93f6ee4f01a1ab147009a197fa8f` under `crates/librqbit`. Cargo.lock resolves that version, and local tests exercise both the dependency/storage seam and application lifecycle. All implementation tasks have acceptance evidence in tasks.md.
 
 ## Goals / Non-Goals
 
@@ -16,7 +16,7 @@ The requested library is treated as `librqbit`. Version 9.1.0 was inspected from
 
 ### 1. A foreground torrent CLI
 
-Proposed public surface:
+Implemented public surface:
 
 ```text
 rqget <SOURCE> -o <DIRECTORY> [--resume] [--quiet]
@@ -84,7 +84,7 @@ Only after these checks set librqbit's `overwrite=true`. Keep session persistenc
 
 ### 5. Observe terminal state independently of progress
 
-Phases are metadata resolution, checking, downloading/waiting for peers, and terminal success/failure/interruption. A checking byte count is not download completion. Display unknown totals honestly; avoid division by zero for empty payloads.
+Phases are metadata resolution, checking, downloading/waiting for peers, and terminal success/failure/interruption. A checking byte count is not download completion. Display unknown totals honestly and avoid division by zero. Zero-length payloads are rejected by this backend before payload writes; they do not produce synthetic successful completion.
 
 Use a compact header naming the transfer/destination and one active indicatif status display. During metadata resolution show a spinner and elapsed time without a guessed percentage. During initialization label progress as bytes checked. During live transfer show verified bytes/total, percentage, download/upload rates, approximate ETA when available, and connected peer count. Take speeds and ETA from librqbit's live stats, not indicatif's byte-delta estimator: resumed or checked bytes are not newly transferred bytes. Connected seeders and per-file counts are available for later presentation decisions; the default remains an aggregate display rather than a file dashboard.
 
@@ -104,6 +104,10 @@ Observe `ManagedTorrent::stats()` for state, errors, verified progress, and `fin
 
 Install signal handling before network work. Race cancellation against session creation, metadata resolution, checking, and transfer. Once a session exists, every success, error, and cancellation path reaches common async shutdown before releasing the destination lock. Bound graceful shutdown to five seconds; a shutdown timeout is reported, never converted into successful completion. A hard kill cannot guarantee cleanup; the next resume still rechecks pieces. librqbit's `stop()` pauses torrents, cancels tasks, and currently waits one second; it is not an fsync or power-loss durability guarantee.
 
+Own a child session cancellation token with a drop guard so cancellation during startup also cancels engine work without cancelling a caller's parent token. Resolve metadata in an abort-on-drop Tokio task; backend parser panics become contextual task failures and reach shutdown. Signals remain effective during shutdown, but a late signal cannot hide an existing fatal error. An interruption future cannot return status zero; only verified engine completion grants download success.
+
+The CLI shares a parking_lot-protected writer between status and diagnostics. Output locks are synchronous and never cross an await. Capture the actual terminal display with indicatif's dev-only `in_memory` feature; use Tokio `test-util` only in development dependencies. Plain-output tests control monotonic time to check heartbeats without waiting thirty seconds.
+
 ### Time handling
 
 - Represent refresh intervals, elapsed spans, timeouts, and engine ETAs with `std::time::Duration`.
@@ -114,12 +118,14 @@ Install signal handling before network work. Race cancellation against session c
 
 ### 6. Explicit dependency features
 
-These dependencies are now present in Cargo.toml and Cargo.lock. Features and versions were verified with strict Clippy and the local compatibility tests; most application-facing behavior is still pending.
+These dependencies are present in Cargo.toml and Cargo.lock. Features and versions were verified with strict Clippy and the compatibility/application acceptance tests.
 
 | Dependency | Proposed constraint / features | Responsibility and tradeoff |
 | --- | --- | --- |
 | `librqbit` | `9.1`, `default-features=false`, `rust-tls` | Engine, metainfo, peers, trackers, DHT, storage, hashing. Use Cargo's normal compatible range and commit the tested resolution in Cargo.lock. Rust TLS avoids requiring an application-managed OpenSSL installation but still has native crypto/build dependencies. |
 | `tokio` | `1`, `rt-multi-thread`, `macros`, `fs`, `time`, `signal` | Runtime required by the engine, local-file reads, timer, and cancellation. Declare features used by rqget rather than relying on transitive feature unification. |
+| `tokio-util` | `0.7`, `rt` | Child cancellation token with a drop guard, plus abort-on-drop ownership of metadata resolution. Already in the engine graph. |
+| `parking_lot` | `0.12` | Synchronous shared progress/log writer lock, held only during output; already in the engine graph. |
 | `clap` | `4`, `derive` | CLI parsing, help, validation, usage exit status. Prefer maintained parsing to a custom argument loop. |
 | `url` | `2` | Source validation and decoded magnet query keys; reject selectors before the engine expands ranges. Reuses an existing transitive dependency. |
 | `anyhow` | `1` | Contextual application errors and direct compatibility with the engine's public storage API. One error stack shared with the dependency; miette is not needed. |
@@ -161,4 +167,4 @@ Inspected 2026-11-01 using the published crate and graph-backed symbol discovery
 - [Camino 1.2.6](https://docs.rs/crate/camino/1.2.6/source/README.md) and [camino-tempfile 1.4.1](https://docs.rs/crate/camino-tempfile/1.4.1/source/README.md): UTF-8 invariants, standard-path interoperability, serde support, and tempfile wrapping were checked against the published package documentation.
 - [Indicatif 0.18.6](https://crates.io/crates/indicatif/0.18.6): published feature metadata and README documentation checked for terminal progress. The selected combined dependency graph passes strict Clippy and the compatibility tests.
 
-Executed proof: local metainfo and magnet/multi-file downloads, exact-byte comparisons, peerless rechecks, same-size corruption detection, injected fatal write failure, unsafe-metadata probes, symlink-open behavior, and cross-process lock exclusion/release. See `docs/compatibility-spike.md` for reproduction commands and limits. Application-level destination enforcement and record-checked resume now have passing regressions, including local corruption repair. Full interruption/progress behavior remains under later acceptance tasks.
+Executed proof: 39 workspace tests cover local metainfo and magnet/multi-file downloads, exact-byte comparisons, peerless rechecks, partial resume, corruption repair, injected fatal writes, destination enforcement, cross-process locks/signals, terminal rendering, redirected heartbeat timing, startup cancellation, and the shutdown deadline. See `docs/acceptance.md` for scenario mapping, commands and limits; `docs/compatibility-spike.md` records the initial dependency investigation.

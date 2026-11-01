@@ -1,8 +1,8 @@
 # rqget
 
-A torrent download CLI built on librqbit. The first guarded download path is
-implemented; the complete first-version acceptance work is tracked in
-[OpenSpec](openspec/changes/plan-torrent-downloader/README.md).
+A foreground torrent download CLI built on librqbit. It downloads one BitTorrent
+v1 torrent, verifies its pieces, stops the session, and exits. The implemented
+contract and its tests are recorded in the [acceptance report](docs/acceptance.md).
 
 ```sh
 cargo run -- path/to/input.torrent -o ./download
@@ -17,10 +17,29 @@ general overwrite option. Use `--quiet` to suppress routine progress.
 Ownership metadata and the stable writer lock live under `.rqget/` inside the
 destination. Unrelated files, unsafe path aliases, and mismatched records cause
 an error. Partial files are retained after failure. Retry a matching interrupted
-transfer with the same source/destination and `--resume`.
+transfer with the same source/destination and `--resume`. If interrupted before
+metadata resolution creates the ownership record, retry the original command
+without adding `--resume`.
 
 Progress goes to stderr; stdout is reserved from status output. Engine diagnostics
 are opt-in through `RUST_LOG` and are coordinated with the active progress bar.
+
+On a terminal, progress shows the phase, verified bytes, percentage, engine
+download/upload rates, approximate ETA, and peers. Checking reports bytes examined;
+retained pieces do not count as fresh network traffic. Unknown ETA shows elapsed
+time. Redirected output uses plain phase changes and 30-second status heartbeats.
+
+Ctrl-C cancels metadata resolution, checking, or downloading and exits with `130`;
+SIGTERM on Unix exits with `143`. Shutdown has a five-second deadline and retains
+the destination lock until cleanup ends. Exit `0` means verified completion
+(or help/version), `1` means a runtime/input/storage failure, and `2` means a usage
+error. A shutdown failure remains an error; signals do not hide prior fatal errors.
+Hard kills cannot guarantee cleanup or durable disk writes; resume rechecks pieces.
+
+Supported sources are local metainfo files and v1 magnet URIs. Remote metainfo or
+HTTP payload URLs, pure v2 torrents, zero-length payloads, file selection, and
+continued seeding are outside this version's scope. A torrent with no peers waits
+and remains interruptible; there is no overall download timeout.
 
 ## Development
 
@@ -46,25 +65,28 @@ the dependency resolution; use locked checks and review dependency updates.
 cargo +stable fmt --all --check
 cargo +stable clippy --locked --workspace --all-targets -- -D warnings
 cargo +stable test --locked --workspace --all-targets
-openspec validate plan-torrent-downloader --strict
+openspec validate --all --strict
+openspec validate --archived --strict
 ```
 
 The tests generate small repeatable payloads and metainfo using librqbit's own
 torrent generator. Seeder and client communicate over loopback TCP with
-ephemeral ports. Trackers, DHT, local-service discovery, UPnP port forwarding,
-and persistence are disabled. Downloading Cargo dependencies initially needs
+ephemeral ports. Tests disable public discovery, UPnP port forwarding, and
+persistence; selected cases use a test-owned loopback HTTP tracker.
+Downloading Cargo dependencies initially needs
 registry access; the test transfers do not require public peers or trackers.
 
 ## Dependency choices
 
 - librqbit `9.1`, resolved to **9.1.0**, with defaults disabled and `rust-tls`.
 - Tokio for the async runtime and monotonic timers; standard `Duration` for spans.
+  tokio-util supplies cancellation tokens and abort-on-drop task ownership.
 - clap for CLI arguments; indicatif for progress and duration formatting.
 - anyhow for application errors and compatibility with the engine's storage API.
 - camino with `serde1` for UTF-8 paths, and camino-tempfile for state-file staging
   and isolated test directories.
-- serde/serde_json for the planned destination record; tracing-subscriber for
-  engine diagnostics.
+- serde/serde_json for the destination record; tracing-subscriber for engine
+  diagnostics; parking_lot for the shared synchronous progress/log output lock.
 - url for source validation, including rejecting encoded magnet file-selection
   parameters before the engine expands them.
 
@@ -72,7 +94,8 @@ Jiff is the preferred choice if calendar/timestamp/timezone handling becomes
 necessary. There is no direct calendar-time dependency today. librqbit's DHT
 dependency brings chrono transitively. Miette is not in the resolved graph.
 
-The workspace currently has 21 passing tests. The [compatibility report](docs/compatibility-spike.md)
-records the initial dependency investigation; the destination policies identified
-there are now enforced by `rqget-core`. Remaining first-version progress and
-interruption acceptance checks are tracked in OpenSpec.
+The workspace has 39 passing tests, including real process signals, controlled
+timers, and terminal rendering. The [compatibility report](docs/compatibility-spike.md)
+records the initial dependency investigation; the [acceptance report](docs/acceptance.md)
+records the completed application checks and their limits. All packages remain
+unpublished; the project license must be selected before distribution.

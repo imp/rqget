@@ -2,6 +2,8 @@
 
 Completed on 2026-11-01 for OpenSpec tasks 1.1–1.3. This report covers the
 dependency/storage seam; it does not mark the complete rqget CLI implemented.
+The later [acceptance report](acceptance.md) records the completed application
+work and supersedes the pending tasks described in this historical report.
 
 ## Toolchain and architecture
 
