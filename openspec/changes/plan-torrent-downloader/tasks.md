@@ -10,6 +10,12 @@ The proposal and specs define the first-version contract. Mark tasks complete on
 
 ## 2. Deliver a safe first download command
 
+Progress: the first guarded application path is implemented. Seven application
+tests cover CLI parsing, UTF-8 rejection, local multi-file download, peerless
+recheck, corruption repair, native filename aliases, record handling, and
+symlink/lock behavior. Full task acceptance and the requested workspace split
+remain in progress; do not interpret this checkpoint as completing later phases.
+
 - [ ] 2.1 Implement argument parsing with camino paths and documented `SOURCE -o DIRECTORY`, help, version, and quiet behavior. Verify parser/process tests for missing/extra arguments and rejected URI/bare-hash/stdin/selection sources, plus Unicode/space-containing path success and non-UTF-8 path rejection without lossy conversion. Prove no network/destination side effects for help and usage errors; document the UTF-8 path contract and commands in README.md.
 - [ ] 2.2 Implement the destination guard with camino paths, canonical root, nonblocking native writer lock, raw metadata UTF-8/prefix-conflict/reserved-path/symlink preflight, and ownership-record staging via same-directory camino-tempfile before atomic persist and payload writes. Verify new/empty destination success, unrelated-file refusal, path/symlink/state-name/encoding rejection, canonicalized-path conversion failure, record-write/persist failure, and two-process contention tests; document the dedicated-destination layout.
 - [ ] 2.3 Replace the starter entry point with the concrete CLI → destination → session workflow for a local metainfo file and magnet source. Resolve metadata before actual add, download all files, observe engine fatal errors/verified completion, and shut down on all post-session exits. Verify end-to-end local single-file and multi-file downloads by comparing exact fixture bytes and asserting exit statuses; document success/error examples with the implementation.

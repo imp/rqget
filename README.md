@@ -1,9 +1,18 @@
 # rqget
 
-A torrent download CLI being built on librqbit. The dependency compatibility
-milestone is complete; the application binary is still the Cargo starter and
-does not yet implement downloads. The proposed command and behavior live in
+A torrent download CLI built on librqbit. The first guarded download path is
+implemented; the complete first-version acceptance work is tracked in
 [OpenSpec](openspec/changes/plan-torrent-downloader/README.md).
+
+```sh
+cargo run -- path/to/input.torrent -o ./download
+cargo run -- 'magnet:?xt=urn:btih:...' -o ./download
+cargo run -- path/to/input.torrent -o ./download --resume
+```
+
+The destination is dedicated to one torrent. Paths must be UTF-8. Resume
+requires a matching rqget record and rechecks existing pieces; it is not a
+general overwrite option. Use `--quiet` to suppress routine progress.
 
 ## Development
 
@@ -36,6 +45,8 @@ registry access; the test transfers do not require public peers or trackers.
   and isolated test directories.
 - serde/serde_json for the planned destination record; tracing-subscriber for
   engine diagnostics.
+- url for source validation, including rejecting encoded magnet file-selection
+  parameters before the engine expands them.
 
 Jiff is the preferred choice if calendar/timestamp/timezone handling becomes
 necessary. There is no direct calendar-time dependency today. librqbit's DHT

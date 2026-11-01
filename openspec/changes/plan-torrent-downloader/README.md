@@ -2,8 +2,9 @@
 
 Define the initial rqget torrent CLI, librqbit integration, safety boundaries, and dependency choices before implementation.
 
-Status: compatibility milestone complete (tasks 1.1–1.3). Dependencies and local
-proof tests are implemented; the application binary is still the Cargo starter.
+Status: compatibility milestone complete (tasks 1.1–1.3); the first guarded
+application download path and seven application regression tests are implemented.
+The next structural change is the requested workspace split and shared lint policy.
 See the repository's [compatibility report](../../../docs/compatibility-spike.md).
 
 - [Proposal and scope](proposal.md)

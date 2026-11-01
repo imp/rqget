@@ -2,7 +2,7 @@
 
 ## Context
 
-See `proposal.md` for motivation and scope. The binary still prints “Hello, world!”, while the dependency compatibility milestone now supplies the agreed dependencies and integration tests. OpenSpec 1.16.0 supplies the `spec-driven` workflow. Executed milestone evidence is recorded in the repository's `docs/compatibility-spike.md`.
+See `proposal.md` for motivation and scope. The compatibility milestone supplies the agreed dependencies and integration tests, and the first guarded download/resume path is now implemented. The requested workspace split is the next structural change. OpenSpec 1.16.0 supplies the `spec-driven` workflow. Initial milestone evidence is recorded in the repository's `docs/compatibility-spike.md`.
 
 The requested library is treated as `librqbit`. Version 9.1.0 was inspected from its published crate, whose recorded upstream revision is `4309d38769ef93f6ee4f01a1ab147009a197fa8f` under `crates/librqbit`. Cargo.lock now resolves that version, and local tests exercise the dependency/storage seam. The full application workflow remains pending.
 
