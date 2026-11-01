@@ -1,0 +1,23 @@
+[package]
+name = "rqget"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "A foreground torrent download command"
+
+[dependencies]
+anyhow.workspace = true
+camino.workspace = true
+clap.workspace = true
+indicatif.workspace = true
+librqbit.workspace = true
+rqget-core.workspace = true
+tokio.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+camino-tempfile.workspace = true
+
+[lints]
+workspace = true

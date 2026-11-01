@@ -15,7 +15,7 @@ use librqbit::{
 };
 
 /// Uses the library's own storage seam to fail payload writes without exhausting a real disk.
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FailWrites(pub Arc<AtomicUsize>);
 
 impl StorageFactory for FailWrites {
@@ -28,7 +28,7 @@ impl StorageFactory for FailWrites {
     ) -> anyhow::Result<Self::Storage> {
         Ok(FailingStorage {
             inner: Box::new(FilesystemStorageFactory::default().create(shared, metadata)?),
-            attempts: self.0.clone(),
+            attempts: Arc::clone(&self.0),
         })
     }
 
@@ -40,6 +40,14 @@ impl StorageFactory for FailWrites {
 pub struct FailingStorage {
     inner: Box<dyn TorrentStorage>,
     attempts: Arc<AtomicUsize>,
+}
+
+impl std::fmt::Debug for FailingStorage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FailingStorage")
+            .field("attempts", &self.attempts)
+            .finish_non_exhaustive()
+    }
 }
 
 impl TorrentStorage for FailingStorage {
@@ -75,7 +83,7 @@ impl TorrentStorage for FailingStorage {
     fn take(&self) -> anyhow::Result<Box<dyn TorrentStorage>> {
         Ok(Box::new(Self {
             inner: self.inner.take()?,
-            attempts: self.attempts.clone(),
+            attempts: Arc::clone(&self.attempts),
         }))
     }
 }

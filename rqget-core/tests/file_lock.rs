@@ -23,7 +23,7 @@ fn lock_holder() -> Result<()> {
         return Ok(());
     };
     let path = camino::Utf8PathBuf::from_path_buf(path.into())
-        .map_err(|_| anyhow::anyhow!("non-UTF-8 lock test path"))?;
+        .map_err(|_path| anyhow::anyhow!("non-UTF-8 lock test path"))?;
     let file = open_lock(&path)?;
     file.try_lock()?;
     println!("RQGET_LOCK_READY");

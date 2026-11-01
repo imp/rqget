@@ -15,6 +15,9 @@ const STATE_DIRECTORY: &str = ".rqget";
 const RECORD_NAME: &str = "state.json";
 const LOCK_NAME: &str = "lock";
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PayloadFile {
@@ -44,7 +47,7 @@ impl Destination {
         std::fs::create_dir_all(path)
             .with_context(|| format!("cannot create destination {path}"))?;
         let root = Utf8PathBuf::from_path_buf(std::fs::canonicalize(path)?)
-            .map_err(|_| anyhow::anyhow!("canonical destination path is not UTF-8"))?;
+            .map_err(|_path| anyhow::anyhow!("canonical destination path is not UTF-8"))?;
         ensure!(root.is_dir(), "destination is not a directory");
         let state = root.join(STATE_DIRECTORY);
         match std::fs::symlink_metadata(&state) {
@@ -53,7 +56,7 @@ impl Destination {
                 "destination state must be a real directory"
             ),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                std::fs::create_dir(&state)?
+                std::fs::create_dir(&state)?;
             }
             Err(error) => return Err(error).context("cannot inspect destination state"),
         }
@@ -162,7 +165,7 @@ impl Destination {
         for entry in std::fs::read_dir(directory)? {
             let entry = entry?;
             let path = Utf8PathBuf::from_path_buf(entry.path())
-                .map_err(|_| anyhow::anyhow!("destination contains a non-UTF-8 path"))?;
+                .map_err(|_path| anyhow::anyhow!("destination contains a non-UTF-8 path"))?;
             if path == self.state {
                 continue;
             }
@@ -186,6 +189,14 @@ impl Destination {
                     kind.is_file() && record.files.iter().any(|f| f.path == relative),
                     "destination contains an unrelated or unsupported file: {relative}"
                 );
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::MetadataExt;
+                    ensure!(
+                        entry.metadata()?.nlink() == 1,
+                        "payload file has additional hard links: {relative}"
+                    );
+                }
             }
         }
         Ok(())
@@ -222,8 +233,17 @@ impl Record {
                 "invalid torrent payload path"
             );
             ensure!(
+                path.components()
+                    .all(|component| matches!(component, camino::Utf8Component::Normal(_))),
+                "payload paths must contain only relative normal components"
+            );
+            ensure!(
                 unique.insert(path.clone()),
                 "duplicate torrent payload path: {path}"
+            );
+            ensure!(
+                path.as_std_path() == details.filename.to_pathbuf(),
+                "engine filename decoding would change a UTF-8 payload path"
             );
             files.push(PayloadFile {
                 path,

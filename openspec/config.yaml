@@ -3,7 +3,9 @@ schema: spec-driven
 context: |
   rqget is a Rust 2024 CLI download tool based on librqbit.
   The repository uses Jujutsu; use jj for version-control operations.
-  The binary remains the Cargo starter; the dependency compatibility spike is implemented.
+  Flat workspace members are rqget (CLI), rqget-core (download/destination library),
+  and rqget-test (development-only fixtures). Each inherits root dependencies and lints.
+  The first guarded download/resume path and compatibility tests are implemented.
   Track implementation and validation evidence in the change tasks and docs/compatibility-spike.md.
   Keep artifacts in English, with OpenSpec structural headings and SHALL/MUST keywords.
   Prefer the existing torrent engine and standard library over new infrastructure.

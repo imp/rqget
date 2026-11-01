@@ -2,9 +2,9 @@
 
 Define the initial rqget torrent CLI, librqbit integration, safety boundaries, and dependency choices before implementation.
 
-Status: compatibility milestone complete (tasks 1.1–1.3); the first guarded
-application download path and seven application regression tests are implemented.
-The next structural change is the requested workspace split and shared lint policy.
+Status: compatibility and guarded download milestones are complete, including
+explicit record-checked resume. The workspace suite has 21 passing tests.
+The flat rqget/rqget-core/rqget-test workspace and inherited lint policy are implemented.
 See the repository's [compatibility report](../../../docs/compatibility-spike.md).
 
 - [Proposal and scope](proposal.md)

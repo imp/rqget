@@ -1,13 +1,12 @@
-//! Render engine progress without treating checked or resumed bytes as new traffic.
+//! Render observations without treating checked or resumed bytes as new traffic.
 
+use anyhow::Result;
+use indicatif::{HumanBytes, HumanDuration, ProgressBar, ProgressStyle};
+use rqget_core::{Event, Snapshot};
 use std::{
     io::{self, IsTerminal, Write},
     time::Duration,
 };
-
-use anyhow::Result;
-use indicatif::{HumanBytes, HumanDuration, ProgressBar, ProgressStyle};
-use librqbit::{TorrentStats, TorrentStatsState};
 use tokio::time::Instant;
 
 const SNAPSHOT_INTERVAL: Duration = Duration::from_secs(30);
@@ -18,7 +17,7 @@ pub(crate) struct Progress {
     quiet: bool,
     started: Instant,
     last_output: Instant,
-    last_progress: Instant,
+    last_advance: Instant,
     last_bytes: u64,
     phase: &'static str,
     transfer_style: ProgressStyle,
@@ -42,7 +41,7 @@ impl Progress {
             quiet,
             started: now,
             last_output: now,
-            last_progress: now,
+            last_advance: now,
             last_bytes: 0,
             phase: "",
             transfer_style: ProgressStyle::with_template(
@@ -56,46 +55,48 @@ impl Progress {
         LogWriter(self.bar.clone())
     }
 
-    pub fn metadata(&mut self) {
-        self.emit(
-            "Resolving metadata",
-            format!(
-                "Resolving metadata... {} elapsed",
-                HumanDuration(self.started.elapsed())
+    pub fn event(&mut self, event: Event) {
+        match event {
+            Event::Metadata => self.emit(
+                "Resolving metadata",
+                format!(
+                    "Resolving metadata... {} elapsed",
+                    HumanDuration(self.started.elapsed())
+                ),
             ),
-        );
+            Event::Transfer(stats) => self.update(&stats),
+            Event::Stopping => self.emit("Stopping", "Stopping transfer...".to_owned()),
+        }
     }
 
-    pub fn update(&mut self, stats: &TorrentStats) {
+    fn update(&mut self, stats: &Snapshot) {
         self.total_bytes = stats.total_bytes;
-        let now = Instant::now();
-        let checking = matches!(stats.state, TorrentStatsState::Initializing { .. });
-        if checking || stats.progress_bytes != self.last_bytes {
-            self.last_progress = now;
-            self.last_bytes = stats.progress_bytes;
+        if stats.checking || stats.completed_bytes != self.last_bytes {
+            self.last_advance = Instant::now();
+            self.last_bytes = stats.completed_bytes;
         }
         let totals = format!(
             "{} / {}",
-            HumanBytes(stats.progress_bytes),
+            HumanBytes(stats.completed_bytes),
             HumanBytes(stats.total_bytes)
         );
-        let (phase, message) = if checking {
+        let (phase, message) = if stats.checking {
             (
                 "Checking",
                 format!("Checking existing files  {totals} examined"),
             )
-        } else if let Some(live) = &stats.live {
-            let peers = live.snapshot.peer_stats.live;
+        } else {
+            let peers = stats.connected_peers;
             let phase = if peers == 0 && !stats.finished {
                 "Waiting for peers"
             } else {
                 "Downloading"
             };
-            let eta = live
-                .time_remaining
+            let eta = stats
+                .remaining
                 .as_ref()
                 .map_or_else(|| "unknown ETA".to_owned(), |eta| format!("~{eta} left"));
-            let inactive = self.last_progress.elapsed();
+            let inactive = self.last_advance.elapsed();
             let waiting = if !stats.finished && inactive >= Duration::from_secs(10) {
                 format!("  no new verified data for {}", HumanDuration(inactive))
             } else {
@@ -105,20 +106,17 @@ impl Progress {
                 phase,
                 format!(
                     "{phase}  {totals}  down {}/s  up {}/s  {eta}  {peers} peers{waiting}",
-                    HumanBytes(live.download_speed.as_bytes()),
-                    HumanBytes(live.upload_speed.as_bytes())
+                    HumanBytes(stats.download_bytes_per_second),
+                    HumanBytes(stats.upload_bytes_per_second)
                 ),
             )
-        } else {
-            ("Preparing", format!("Preparing transfer  {totals}"))
         };
         if stats.total_bytes > 0 {
             self.bar.set_style(self.transfer_style.clone());
             self.bar.set_length(stats.total_bytes);
             self.bar
-                .set_position(stats.progress_bytes.min(stats.total_bytes));
+                .set_position(stats.completed_bytes.min(stats.total_bytes));
         }
-        // Width and percentage are presentation only; the engine owns completion.
         self.emit(phase, message);
     }
 
@@ -134,10 +132,6 @@ impl Progress {
             eprintln!("{message}");
             self.last_output = Instant::now();
         }
-    }
-
-    pub fn shutdown(&mut self) {
-        self.emit("Stopping", "Stopping transfer...".to_owned());
     }
 
     pub fn finish(&self, outcome: &Result<u8>, destination: &camino::Utf8Path) {
@@ -164,7 +158,7 @@ impl Drop for Progress {
     }
 }
 
-/// Route engine diagnostics around the progress display, including when progress is hidden.
+/// Route diagnostics around the progress display, including when progress is hidden.
 #[derive(Clone)]
 pub(crate) struct LogWriter(ProgressBar);
 
@@ -173,7 +167,6 @@ impl Write for LogWriter {
         self.0.suspend(|| io::stderr().write_all(bytes))?;
         Ok(bytes.len())
     }
-
     fn flush(&mut self) -> io::Result<()> {
         io::stderr().flush()
     }

@@ -13,6 +13,7 @@ use std::{
 
 use anyhow::{Result, ensure};
 
+#[derive(Debug)]
 pub struct Tracker {
     pub url: url::Url,
     stopped: Arc<AtomicBool>,
@@ -20,6 +21,10 @@ pub struct Tracker {
 }
 
 impl Tracker {
+    /// Start a loopback tracker returning the supplied fixture peer.
+    ///
+    /// # Errors
+    /// Returns an error for non-loopback/non-IPv4 peers or a listener setup failure.
     pub fn start(peer: SocketAddr) -> Result<Self> {
         let SocketAddr::V4(peer) = peer else {
             anyhow::bail!("fixture requires IPv4");
@@ -52,7 +57,7 @@ impl Tracker {
                         }
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        thread::park_timeout(Duration::from_millis(5))
+                        thread::park_timeout(Duration::from_millis(5));
                     }
                     Err(_) => break,
                 }

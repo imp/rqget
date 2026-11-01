@@ -2,15 +2,15 @@
 
 ## Context
 
-See `proposal.md` for motivation and scope. The compatibility milestone supplies the agreed dependencies and integration tests, and the first guarded download/resume path is now implemented. The requested workspace split is the next structural change. OpenSpec 1.16.0 supplies the `spec-driven` workflow. Initial milestone evidence is recorded in the repository's `docs/compatibility-spike.md`.
+See `proposal.md` for motivation and scope. The compatibility milestone supplies the agreed dependencies and integration tests, and the first guarded download/resume path is now implemented. The requested flat workspace split and inherited lint policy are implemented. OpenSpec 1.16.0 supplies the `spec-driven` workflow. Initial milestone evidence is recorded in the repository's `docs/compatibility-spike.md`.
 
-The requested library is treated as `librqbit`. Version 9.1.0 was inspected from its published crate, whose recorded upstream revision is `4309d38769ef93f6ee4f01a1ab147009a197fa8f` under `crates/librqbit`. Cargo.lock now resolves that version, and local tests exercise the dependency/storage seam. The full application workflow remains pending.
+The requested library is treated as `librqbit`. Version 9.1.0 was inspected from its published crate, whose recorded upstream revision is `4309d38769ef93f6ee4f01a1ab147009a197fa8f` under `crates/librqbit`. Cargo.lock now resolves that version, and local tests exercise the dependency/storage seam. The guarded download/resume path is implemented; remaining progress and interruption acceptance checks are tracked in tasks.md.
 
 ## Goals / Non-Goals
 
 **Goals:** One complete command lifecycle; one owner of destination safety; library-owned protocol, piece hashing, and peer scheduling; deterministic local acceptance tests.
 
-**Non-Goals:** A reusable downloader framework, separate library crate, backend traits, home-grown torrent parser or wire protocol, background service, or custom persistence engine. Scope expansions require a revised proposal and specs.
+**Non-Goals:** A generic downloader framework, backend traits, home-grown torrent parser or wire protocol, background service, or custom persistence engine. Scope expansions require a revised proposal and specs.
 
 ## Decisions
 
@@ -34,21 +34,23 @@ Exit statuses: `0` for help/version or verified completion, `2` for CLI usage er
 
 Alternative: wrapping the rqbit executable would require process supervision and parsing an external CLI. Embedding librqbit gives typed control over the lifecycle.
 
-### 2. Keep ownership in three small modules
+### 2. A flat workspace with explicit crate ownership
 
 ```text
-main -> CLI parsing -> download lifecycle
-                       |-> destination validation / ownership / lock
-                       |-> librqbit session / metadata / transfer / stats
-                       `-> progress and signal handling -> session stop -> exit
+rqget: CLI / terminal / signals -> rqget-core: source / destination / lifecycle
+            ^ progress events <--------------------|
+rqget-test: local fixtures (development dependencies only)
 ```
 
-- `cli`: parse and validate arguments; no peer or file-write policy.
-- `destination`: canonical root, rqget state record, exclusive lock, metainfo path preflight, and resume eligibility. It owns permission to enable engine overwrite.
-- `download`: hold the session and destination guard, resolve metadata, add one torrent, observe engine state, handle signals, and stop the session on every post-creation exit. Keep progress rendering here until its complexity warrants a module.
-- `main`: initialize diagnostics, run the command, and map its outcome to an exit status after cleanup. Do not call process exit inside engine code or bypass destructors.
+- `rqget/`: thin executable for UTF-8 argument parsing, diagnostics, signal registration, and indicatif rendering. It consumes core observations and maps outcomes to exit statuses.
+- `rqget-core/`: validated sources, concrete download runner, and private destination guard. It owns overwrite permission, lock lifetime, metadata preflight, and shutdown. Owned snapshots pass to the caller through a standard observer callback; this crate has no terminal-rendering dependency.
+- `rqget-test/`: shared torrent generation, loopback seeding/tracker fixtures, and storage fault injection. Production code reaches it only through development dependencies.
+- The root is a virtual workspace with these three sibling directories, inherited dependencies/package defaults, and shared Rust/Clippy lints. There is no crates/ directory. The CLI is the default member; repository-wide checks use `--workspace`.
+- Core types have one public export path. Private destination behavior uses local unit tests; integration tests import crate APIs, without source-file path imports.
 
 Use concrete functions and owned guards. No trait for a single torrent backend, event bus, detached progress loop, or parallel second copy of the engine's transfer state.
+
+Shared lints enable Rust checks, Clippy all/pedantic/cargo, and selected restrictions; validation denies warnings. Root exceptions document unpublished package metadata, engine-owned duplicate dependency versions, and inferred struct-update defaults. Every member inherits this policy.
 
 Use anyhow with contextual errors at rqget's application boundaries, matching librqbit's existing error and storage-trait interfaces. Preserve the source chain and display useful context instead of flattening errors. A second report stack does not justify its dependencies or boundary adaptation here. Clear an active progress display before printing a terminal error, and coordinate engine log output with indicatif so logs do not overwrite the progress line. Render readable errors for both terminal and redirected output; quiet mode must not hide them or alter exit-status mapping.
 
@@ -66,7 +68,7 @@ Use `Session::new_with_opts` and an initial `add_torrent` with `list_only=true` 
 
 Use engine validation first. The destination layer must additionally reject absolute paths, parent traversal, duplicate/conflicting payload paths, symlink escapes, and payload paths using reserved `.rqget` state. Test the actual engine/storage boundary; passing a lexical check alone does not prove contained writes. Reject existing symlinks in payload path components before granting writes. The destination is user-controlled local storage; the writer lock coordinates rqget processes, not hostile local programs mutating the tree during the transfer.
 
-The compatibility probes confirm engine rejection of traversal, embedded separators/absolute components, and duplicate real filenames. They also confirm that reserved `.rqget` names and file/directory prefix conflicts pass list-only validation, and overwrite mode opens an existing symlink. Enforce those additional checks in the destination owner before the real add; the spike does not enable an application overwrite/resume path.
+The compatibility probes confirm engine rejection of traversal, embedded separators/absolute components, and duplicate real filenames. They also confirm that reserved `.rqget` names and file/directory prefix conflicts pass list-only validation, and overwrite mode opens an existing symlink. The destination owner now rejects these paths before the real add. It also checks that engine decoding preserves raw UTF-8, stages a disposable same-filesystem layout to detect native case/Unicode aliases, and rejects additional payload hard links on Unix.
 
 Do not expose a seed-only mode or request upload disabling. Ordinary uploading during download is part of BitTorrent; after verified completion explicitly stop the session.
 
@@ -119,6 +121,7 @@ These dependencies are now present in Cargo.toml and Cargo.lock. Features and ve
 | `librqbit` | `9.1`, `default-features=false`, `rust-tls` | Engine, metainfo, peers, trackers, DHT, storage, hashing. Use Cargo's normal compatible range and commit the tested resolution in Cargo.lock. Rust TLS avoids requiring an application-managed OpenSSL installation but still has native crypto/build dependencies. |
 | `tokio` | `1`, `rt-multi-thread`, `macros`, `fs`, `time`, `signal` | Runtime required by the engine, local-file reads, timer, and cancellation. Declare features used by rqget rather than relying on transitive feature unification. |
 | `clap` | `4`, `derive` | CLI parsing, help, validation, usage exit status. Prefer maintained parsing to a custom argument loop. |
+| `url` | `2` | Source validation and decoded magnet query keys; reject selectors before the engine expands ranges. Reuses an existing transitive dependency. |
 | `anyhow` | `1` | Contextual application errors and direct compatibility with the engine's public storage API. One error stack shared with the dependency; miette is not needed. |
 | `camino` | `1.2`, `serde1` | UTF-8 application paths with explicit fallible conversions at external boundaries; rejects non-UTF-8 paths rather than changing them. |
 | `camino-tempfile` | `1.4` | Same-directory temporary ownership-record files and isolated UTF-8 test fixtures. Wraps tempfile; replaces rqget's direct tempfile dependency. |
@@ -158,4 +161,4 @@ Inspected 2026-11-01 using the published crate and graph-backed symbol discovery
 - [Camino 1.2.6](https://docs.rs/crate/camino/1.2.6/source/README.md) and [camino-tempfile 1.4.1](https://docs.rs/crate/camino-tempfile/1.4.1/source/README.md): UTF-8 invariants, standard-path interoperability, serde support, and tempfile wrapping were checked against the published package documentation.
 - [Indicatif 0.18.6](https://crates.io/crates/indicatif/0.18.6): published feature metadata and README documentation checked for terminal progress. The selected combined dependency graph passes strict Clippy and the compatibility tests.
 
-Executed proof: local metainfo and magnet/multi-file downloads, exact-byte comparisons, peerless rechecks, same-size corruption detection, injected fatal write failure, unsafe-metadata probes, symlink-open behavior, and cross-process lock exclusion/release. See `docs/compatibility-spike.md` for reproduction commands and limits. Application-level destination enforcement, progress, interruption/resume, and corruption repair transfers remain later acceptance tasks.
+Executed proof: local metainfo and magnet/multi-file downloads, exact-byte comparisons, peerless rechecks, same-size corruption detection, injected fatal write failure, unsafe-metadata probes, symlink-open behavior, and cross-process lock exclusion/release. See `docs/compatibility-spike.md` for reproduction commands and limits. Application-level destination enforcement and record-checked resume now have passing regressions, including local corruption repair. Full interruption/progress behavior remains under later acceptance tasks.

@@ -6,7 +6,7 @@ rqget needs a defined download workflow before the starter binary becomes an app
 
 ## What Changes
 
-This is the first-version contract with the dependency compatibility milestone implemented. The download CLI is not yet implemented. The user's `librqbt` is interpreted as the published `librqbit` crate; 9.1.0 was verified on 2026-11-01.
+This is the first-version contract with the dependency milestone and first guarded CLI path implemented. Remaining acceptance work is tracked in tasks.md. The user's `librqbt` is interpreted as the published `librqbit` crate; 9.1.0 was verified on 2026-11-01.
 
 - Provide `rqget <SOURCE> -o <DIRECTORY> [--resume] [--quiet]`, with exactly one magnet URI or local `.torrent` file per invocation.
 - Download all files in a supported BitTorrent v1 torrent, verify pieces through the engine, report progress, stop the session, and exit after completion.
@@ -29,6 +29,6 @@ None. `openspec list --specs --json` returned an empty inventory at planning tim
 
 ## Impact
 
-The compatibility milestone adds the agreed Cargo dependencies, lockfile, stable-toolchain configuration, and local integration tests. Subsequent implementation will replace `src/main.rs` and introduce small CLI, download-lifecycle, and destination modules in this binary crate.
+The flat workspace contains `rqget/` for CLI/presentation/signals, `rqget-core/` for the guarded download lifecycle and source validation, and `rqget-test/` for development-only fixtures. Package defaults, dependency versions, and Rust/Clippy lints are shared at the root. The implementation includes a lockfile, stable-toolchain configuration, and local regression tests.
 
 Chosen dependencies: librqbit with the normal `9.1` compatibility range and committed Cargo.lock; Tokio; clap; anyhow for application errors and engine API compatibility; camino for UTF-8 paths; camino-tempfile for atomic state-file staging and test fixtures; indicatif for progress; serde/serde_json for the destination record; and tracing-subscriber for engine logs. Use standard durations and monotonic timers for transfer timing; prefer Jiff if calendar or timestamp handling becomes necessary. librqbit is Apache-2.0; the rqget project license remains a maintainer decision before distribution. See `design.md` and `docs/compatibility-spike.md` for the boundary decisions and executed proof.

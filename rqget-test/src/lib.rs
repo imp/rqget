@@ -1,4 +1,7 @@
+//! Repeatable loopback fixtures for rqget integration and storage-boundary tests.
+
 pub mod fault_storage;
+pub mod tracker;
 
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
@@ -20,7 +23,20 @@ pub struct Fixture {
     pub files: Vec<(String, Vec<u8>)>,
 }
 
+impl std::fmt::Debug for Fixture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Fixture")
+            .field("root", &self.root)
+            .field("info_hash", &self.torrent.info_hash())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Fixture {
+    /// Generate repeatable payload bytes and corresponding engine-produced metainfo.
+    ///
+    /// # Errors
+    /// Returns filesystem or torrent-generation errors.
     pub async fn new(single_file: bool) -> Result<Self> {
         let root = camino_tempfile::tempdir()?;
         let names = if single_file {
@@ -28,12 +44,12 @@ impl Fixture {
         } else {
             vec!["first.bin", "nested/second file-é.bin"]
         };
-        let mut files = Vec::new();
+        let mut files = Vec::with_capacity(names.len());
         for (index, name) in names.into_iter().enumerate() {
             // Repeatable uneven file sizes make pieces cross file boundaries.
             let data = (0..(131_117 + index * 9_013))
-                .map(|offset| u8::try_from((offset * 31 + index * 17) % 251).unwrap())
-                .collect::<Vec<_>>();
+                .map(|offset| u8::try_from((offset * 31 + index * 17) % 251))
+                .collect::<std::result::Result<Vec<_>, _>>()?;
             let path = root.path().join(name);
             std::fs::create_dir_all(path.parent().context("fixture parent")?)?;
             std::fs::write(path, &data)?;
@@ -65,6 +81,13 @@ impl Fixture {
         })
     }
 
+    /// Compare downloaded files against the original fixture bytes.
+    ///
+    /// # Errors
+    /// Returns a filesystem read error.
+    ///
+    /// # Panics
+    /// Panics if a downloaded file differs from its expected bytes.
     pub fn assert_payload(&self, destination: &Utf8Path) -> Result<()> {
         for (name, expected) in &self.files {
             let actual = std::fs::read(destination.join(name))?;
@@ -75,6 +98,9 @@ impl Fixture {
 }
 
 /// A session restricted to explicitly supplied peers: no trackers, DHT, LSD, or persistence.
+///
+/// # Errors
+/// Returns an engine session initialization error.
 pub async fn session(root: &Utf8Path, listen: bool) -> Result<Arc<Session>> {
     Session::new_with_opts(
         root.to_owned().into_std_path_buf(),
@@ -92,6 +118,10 @@ pub async fn session(root: &Utf8Path, listen: bool) -> Result<Arc<Session>> {
     .await
 }
 
+/// Serve a checked fixture over an ephemeral loopback TCP listener.
+///
+/// # Errors
+/// Returns a session, initialization, checking, or listener error.
 pub async fn seed(fixture: &Fixture) -> Result<(Arc<Session>, SocketAddr)> {
     let session = session(fixture.root.path(), true).await?;
     let result = async {
@@ -120,6 +150,10 @@ pub async fn seed(fixture: &Fixture) -> Result<(Arc<Session>, SocketAddr)> {
     }
 }
 
+/// Require a newly added transfer handle from an engine response.
+///
+/// # Errors
+/// Returns an error for duplicate or list-only responses.
 pub fn added(response: AddTorrentResponse) -> Result<Arc<ManagedTorrent>> {
     match response {
         AddTorrentResponse::Added(_, handle) => Ok(handle),
@@ -128,6 +162,10 @@ pub fn added(response: AddTorrentResponse) -> Result<Arc<ManagedTorrent>> {
     }
 }
 
+/// Observe engine stats until a condition matches or the bounded wait fails.
+///
+/// # Errors
+/// Returns an error for a fatal engine state or an observation timeout.
 pub async fn wait_for(
     handle: &ManagedTorrent,
     condition: impl Fn(&TorrentStats) -> bool,
@@ -158,6 +196,10 @@ pub async fn wait_for(
     })?
 }
 
+/// Stop a session and verify that its cancellation token was cancelled.
+///
+/// # Errors
+/// Returns an error if shutdown times out or cancellation was not applied.
 pub async fn stop(session: &Session) -> Result<()> {
     timeout(Duration::from_secs(5), session.stop())
         .await
@@ -169,7 +211,31 @@ pub async fn stop(session: &Session) -> Result<()> {
     Ok(())
 }
 
+/// Resolve local fixture metainfo without creating payload files.
+///
+/// # Errors
+/// Returns a session, metainfo, or bounded-shutdown error.
+pub async fn metadata(bytes: Vec<u8>, root: &Utf8Path) -> Result<librqbit::ListOnlyResponse> {
+    let client = session(root, false).await?;
+    let response = client
+        .add_torrent(
+            AddTorrent::from_bytes(bytes),
+            Some(AddTorrentOptions {
+                list_only: true,
+                sub_folder: Some(String::new()),
+                ..Default::default()
+            }),
+        )
+        .await;
+    stop(&client).await?;
+    match response? {
+        AddTorrentResponse::ListOnly(metadata) => Ok(metadata),
+        _ => bail!("expected fixture metadata"),
+    }
+}
+
 /// Tiny deliberately adversarial metainfo fixtures, not an application codec.
+#[must_use]
 pub fn metainfo(paths: &[&[&[u8]]]) -> Vec<u8> {
     fn bytes(output: &mut Vec<u8>, value: &[u8]) {
         output.extend_from_slice(format!("{}:", value.len()).as_bytes());

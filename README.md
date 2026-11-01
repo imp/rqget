@@ -14,7 +14,27 @@ The destination is dedicated to one torrent. Paths must be UTF-8. Resume
 requires a matching rqget record and rechecks existing pieces; it is not a
 general overwrite option. Use `--quiet` to suppress routine progress.
 
+Ownership metadata and the stable writer lock live under `.rqget/` inside the
+destination. Unrelated files, unsafe path aliases, and mismatched records cause
+an error. Partial files are retained after failure. Retry a matching interrupted
+transfer with the same source/destination and `--resume`.
+
+Progress goes to stderr; stdout is reserved from status output. Engine diagnostics
+are opt-in through `RUST_LOG` and are coordinated with the active progress bar.
+
 ## Development
+
+The workspace has three flat sibling directories:
+
+| Crate | Responsibility |
+| --- | --- |
+| `rqget/` | Thin executable: arguments, signals, terminal progress, and logging |
+| `rqget-core/` | Source validation, destination ownership, and download lifecycle |
+| `rqget-test/` | Shared local fixtures, used as a development dependency |
+
+Dependency versions, package defaults, and Rust/Clippy lints live in the root
+Cargo.toml; every member inherits them. The CLI is the default member, so
+`cargo run -- ...` works from the workspace root. Check all members together:
 
 Use stable Rust. The declared supported baseline is Rust 1.99; the compatibility
 spike was verified with Rust 1.99.1 on native `aarch64-apple-darwin`. This is a
@@ -23,9 +43,9 @@ conservative project baseline, not a claim about librqbit's minimum compiler.
 the dependency resolution; use locked checks and review dependency updates.
 
 ```sh
-cargo +stable fmt --check
-cargo +stable clippy --locked --all-targets -- -D warnings
-cargo +stable test --locked --all-targets
+cargo +stable fmt --all --check
+cargo +stable clippy --locked --workspace --all-targets -- -D warnings
+cargo +stable test --locked --workspace --all-targets
 openspec validate plan-torrent-downloader --strict
 ```
 
@@ -52,6 +72,7 @@ Jiff is the preferred choice if calendar/timestamp/timezone handling becomes
 necessary. There is no direct calendar-time dependency today. librqbit's DHT
 dependency brings chrono transitively. Miette is not in the resolved graph.
 
-See the [compatibility report](docs/compatibility-spike.md) for tested behavior,
-dependency features, and the destination-safety checks still needed before the
-download CLI and resume feature can be exposed.
+The workspace currently has 21 passing tests. The [compatibility report](docs/compatibility-spike.md)
+records the initial dependency investigation; the destination policies identified
+there are now enforced by `rqget-core`. Remaining first-version progress and
+interruption acceptance checks are tracked in OpenSpec.

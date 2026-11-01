@@ -1,8 +1,6 @@
 //! Download a single torrent with explicit ownership of its destination.
 
 mod cli;
-mod destination;
-mod download;
 mod progress;
 
 use std::process::ExitCode;
@@ -32,10 +30,11 @@ async fn main() -> ExitCode {
 }
 
 async fn execute(args: cli::Args) -> Result<u8> {
+    let quiet = args.quiet;
     let request = args.validate()?;
     let destination = request.output.clone();
     let signals = Signals::new()?;
-    let mut progress = progress::Progress::new(request.quiet)?;
+    let mut progress = progress::Progress::new(quiet)?;
     let writer = progress.writer();
     // Detailed engine logging is opt-in; tracker diagnostics may contain private URLs.
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -54,7 +53,10 @@ async fn execute(args: cli::Args) -> Result<u8> {
         listen: Some(ListenerOptions::default()),
         ..Default::default()
     };
-    let result = download::run(request, options, signals.receive(), &mut progress).await;
+    let result = rqget_core::run(request, options, signals.receive(), |event| {
+        progress.event(event);
+    })
+    .await;
     progress.finish(&result, &destination);
     result
 }

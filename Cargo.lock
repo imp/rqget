@@ -2485,10 +2485,35 @@ dependencies = [
  "clap",
  "indicatif",
  "librqbit",
+ "rqget-core",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "rqget-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "camino",
+ "camino-tempfile",
+ "librqbit",
+ "rqget-test",
  "serde",
  "serde_json",
  "tokio",
- "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "rqget-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "camino",
+ "camino-tempfile",
+ "librqbit",
+ "tokio",
  "url",
 ]
 

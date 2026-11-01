@@ -1,4 +1,4 @@
-mod support;
+use rqget_test as support;
 
 use std::{
     io::{Seek, SeekFrom, Write},
@@ -24,6 +24,10 @@ async fn magnet_metadata_and_multifile_download() -> Result<()> {
     download_and_recheck(false, true).await
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one transfer scenario retains both sessions through a shared cleanup path"
+)]
 async fn download_and_recheck(single_file: bool, magnet: bool) -> Result<()> {
     let fixture = Fixture::new(single_file).await?;
     let (seeder, peer) = seed(&fixture).await?;
