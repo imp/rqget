@@ -3,7 +3,10 @@
 mod cli;
 mod progress;
 
-use std::process::ExitCode;
+#[cfg(test)]
+mod tests;
+
+use std::{io::Write, process::ExitCode};
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -19,22 +22,27 @@ async fn main() -> ExitCode {
             return ExitCode::from(u8::try_from(code).unwrap_or(1));
         }
     };
-    let result = execute(args).await;
+    let result = execute(args, session_options()).await;
+    ExitCode::from(report(result))
+}
+
+fn report(result: Result<u8>) -> u8 {
     match result {
-        Ok(status) => ExitCode::from(status),
+        Ok(status) => status,
         Err(error) => {
-            eprintln!("rqget: {error:#}");
-            ExitCode::FAILURE
+            let _ = writeln!(std::io::stderr(), "rqget: {error:#}");
+            1
         }
     }
 }
 
-async fn execute(args: cli::Args) -> Result<u8> {
+async fn execute(args: cli::Args, options: SessionOptions) -> Result<u8> {
     let quiet = args.quiet;
     let request = args.validate()?;
     let destination = request.output.clone();
     let signals = Signals::new()?;
     let mut progress = progress::Progress::new(quiet)?;
+    progress.destination(&destination);
     let writer = progress.writer();
     // Detailed engine logging is opt-in; tracker diagnostics may contain private URLs.
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -45,20 +53,23 @@ async fn execute(args: cli::Args) -> Result<u8> {
         .with_ansi(false)
         .try_init()
         .map_err(|error| anyhow::anyhow!("cannot initialize engine diagnostics: {error}"))?;
-    let options = SessionOptions {
-        dht: Some(DhtSessionConfig {
-            persistence: None,
-            ..Default::default()
-        }),
-        listen: Some(ListenerOptions::default()),
-        ..Default::default()
-    };
     let result = rqget_core::run(request, options, signals.receive(), |event| {
         progress.event(event);
     })
     .await;
     progress.finish(&result, &destination);
     result
+}
+
+fn session_options() -> SessionOptions {
+    SessionOptions {
+        dht: Some(DhtSessionConfig {
+            persistence: None,
+            ..Default::default()
+        }),
+        listen: Some(ListenerOptions::default()),
+        ..Default::default()
+    }
 }
 
 #[cfg(unix)]

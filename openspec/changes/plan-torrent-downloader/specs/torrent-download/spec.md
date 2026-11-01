@@ -48,10 +48,10 @@ The command SHALL report successful download completion only when all payload pi
 - **THEN** the command stops its session, reports the destination, and exits with status `0`
 - **AND** no download or seeding process remains running
 
-#### Scenario: Empty payload
-- **WHEN** valid supported metainfo describes no payload bytes
-- **THEN** completion follows verified engine state
-- **AND** progress formatting does not divide by zero or invent a transfer rate
+#### Scenario: Unsupported zero-length payload
+- **WHEN** metainfo describes a zero-length payload unsupported by the engine
+- **THEN** the command reports the unsupported input and exits with status `1` without creating payload files
+- **AND** progress formatting does not divide by zero or invent successful completion
 
 ### Requirement: Useful and script-safe progress
 

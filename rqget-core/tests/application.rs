@@ -26,6 +26,40 @@ fn local_options() -> SessionOptions {
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn invalid_lengths_fail_without_payload_writes_or_unwinding_the_caller() -> Result<()> {
+    let root = camino_tempfile::tempdir()?;
+    let empty = b"d4:infod6:lengthi0e4:name5:empty12:piece lengthi16384e6:pieces0:ee".to_vec();
+    let mut invalid_piece =
+        b"d4:infod6:lengthi1e4:name5:empty12:piece lengthi0e6:pieces20:".to_vec();
+    invalid_piece.extend_from_slice(&[0; 20]);
+    invalid_piece.extend_from_slice(b"ee");
+    for (index, metainfo) in [empty, invalid_piece].into_iter().enumerate() {
+        let input = root.path().join(format!("invalid-{index}.torrent"));
+        let output = root.path().join(format!("out-{index}"));
+        std::fs::write(&input, metainfo)?;
+        timeout(
+            Duration::from_secs(5),
+            run(
+                request(input.as_str(), &output, false)?,
+                local_options(),
+                pending(),
+                |_| {},
+            ),
+        )
+        .await?
+        .expect_err("unsupported metainfo must fail the job");
+        assert_eq!(std::fs::read_dir(&output)?.count(), 1);
+        assert!(!output.join(".rqget/state.json").exists());
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(output.join(".rqget/lock"))?;
+        lock.try_lock()?;
+    }
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn core_reports_fatal_write_errors_and_releases_destination_ownership() -> Result<()> {
     let fixture = support::Fixture::new(true).await?;
@@ -41,13 +75,22 @@ async fn core_reports_fatal_write_errors_and_releases_destination_ownership() ->
         options.trackers.insert(tracker.url.clone());
         options.default_storage_factory =
             Some(support::fault_storage::FailWrites::default().boxed());
+        let (signal, receive) = tokio::sync::oneshot::channel();
+        let mut signal = Some(signal);
+        let interrupted = async { receive.await.map_err(anyhow::Error::from) };
         let error = timeout(
             Duration::from_secs(10),
             run(
                 request(input.as_str(), &destination, false)?,
                 options,
-                pending(),
-                |_| {},
+                interrupted,
+                |event| {
+                    if matches!(event, rqget_core::Event::Stopping)
+                        && let Some(signal) = signal.take()
+                    {
+                        let _ = signal.send(143);
+                    }
+                },
             ),
         )
         .await?

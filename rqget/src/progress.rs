@@ -1,15 +1,22 @@
 //! Render observations without treating checked or resumed bytes as new traffic.
 
 use anyhow::Result;
-use indicatif::{HumanBytes, HumanDuration, ProgressBar, ProgressStyle};
+use indicatif::{HumanBytes, HumanDuration, ProgressBar, ProgressDrawTarget, ProgressStyle};
+use parking_lot::Mutex;
 use rqget_core::{Event, Snapshot};
 use std::{
     io::{self, IsTerminal, Write},
+    sync::Arc,
     time::Duration,
 };
 use tokio::time::Instant;
 
 const SNAPSHOT_INTERVAL: Duration = Duration::from_secs(30);
+
+#[cfg(test)]
+mod tests;
+
+type Output = Arc<Mutex<Box<dyn Write + Send>>>;
 
 pub(crate) struct Progress {
     bar: ProgressBar,
@@ -22,16 +29,34 @@ pub(crate) struct Progress {
     phase: &'static str,
     transfer_style: ProgressStyle,
     total_bytes: u64,
+    output: Output,
 }
 
 impl Progress {
     pub fn new(quiet: bool) -> Result<Self> {
         let terminal = io::stderr().is_terminal();
+        Self::with_output(
+            quiet,
+            terminal,
+            ProgressDrawTarget::stderr(),
+            Box::new(io::stderr()),
+        )
+    }
+
+    fn with_output(
+        quiet: bool,
+        terminal: bool,
+        target: ProgressDrawTarget,
+        output: Box<dyn Write + Send>,
+    ) -> Result<Self> {
         let bar = if terminal && !quiet {
             ProgressBar::new_spinner()
         } else {
             ProgressBar::hidden()
         };
+        if terminal && !quiet {
+            bar.set_draw_target(target);
+        }
         bar.set_style(ProgressStyle::with_template("{spinner} {msg}")?);
         bar.enable_steady_tick(Duration::from_millis(120));
         let now = Instant::now();
@@ -45,14 +70,28 @@ impl Progress {
             last_bytes: 0,
             phase: "",
             transfer_style: ProgressStyle::with_template(
-                "{spinner} {wide_bar} {percent:>3}% {msg}",
+                "{spinner} {wide_bar} {percent:>3}%\n{msg}",
             )?,
             total_bytes: 0,
+            output: Arc::new(Mutex::new(output)),
         })
     }
 
     pub fn writer(&self) -> LogWriter {
-        LogWriter(self.bar.clone())
+        LogWriter {
+            bar: self.bar.clone(),
+            output: Arc::clone(&self.output),
+        }
+    }
+
+    pub fn destination(&self, path: &camino::Utf8Path) {
+        if !self.quiet {
+            let _ = writeln!(
+                self.writer(),
+                "Destination: {}",
+                path.as_str().escape_debug()
+            );
+        }
     }
 
     pub fn event(&mut self, event: Event) {
@@ -92,10 +131,15 @@ impl Progress {
             } else {
                 "Downloading"
             };
-            let eta = stats
-                .remaining
-                .as_ref()
-                .map_or_else(|| "unknown ETA".to_owned(), |eta| format!("~{eta} left"));
+            let eta = stats.remaining.as_ref().map_or_else(
+                || {
+                    format!(
+                        "ETA unknown; {} elapsed",
+                        HumanDuration(self.started.elapsed())
+                    )
+                },
+                |eta| format!("~{eta} left"),
+            );
             let inactive = self.last_advance.elapsed();
             let waiting = if !stats.finished && inactive >= Duration::from_secs(10) {
                 format!("  no new verified data for {}", HumanDuration(inactive))
@@ -129,7 +173,7 @@ impl Progress {
         if self.terminal {
             self.bar.set_message(message);
         } else if changed || self.last_output.elapsed() >= SNAPSHOT_INTERVAL {
-            eprintln!("{message}");
+            let _ = writeln!(self.writer(), "{message}");
             self.last_output = Instant::now();
         }
     }
@@ -140,13 +184,27 @@ impl Progress {
             return;
         }
         match outcome {
-            Ok(0) => eprintln!(
-                "Done — {} verified in {} → {}",
-                HumanBytes(self.total_bytes),
-                HumanDuration(self.started.elapsed()),
-                destination.as_str().escape_debug()
-            ),
-            Ok(_) => eprintln!("Interrupted — partial data retained; resume with --resume"),
+            Ok(0) => {
+                let _ = writeln!(
+                    self.writer(),
+                    "Done — {} verified in {} → {}",
+                    HumanBytes(self.total_bytes),
+                    HumanDuration(self.started.elapsed()),
+                    destination.as_str().escape_debug()
+                );
+            }
+            Ok(_) if destination.join(".rqget/state.json").is_file() => {
+                let _ = writeln!(
+                    self.writer(),
+                    "Interrupted — download data retained; resume with --resume"
+                );
+            }
+            Ok(_) => {
+                let _ = writeln!(
+                    self.writer(),
+                    "Interrupted before payload transfer; retry the same command"
+                );
+            }
             Err(_) => {}
         }
     }
@@ -160,14 +218,17 @@ impl Drop for Progress {
 
 /// Route diagnostics around the progress display, including when progress is hidden.
 #[derive(Clone)]
-pub(crate) struct LogWriter(ProgressBar);
+pub(crate) struct LogWriter {
+    bar: ProgressBar,
+    output: Output,
+}
 
 impl Write for LogWriter {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.0.suspend(|| io::stderr().write_all(bytes))?;
+        self.bar.suspend(|| self.output.lock().write_all(bytes))?;
         Ok(bytes.len())
     }
     fn flush(&mut self) -> io::Result<()> {
-        io::stderr().flush()
+        self.output.lock().flush()
     }
 }

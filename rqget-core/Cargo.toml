@@ -14,10 +14,12 @@ librqbit.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 url.workspace = true
 
 [dev-dependencies]
 rqget-test.workspace = true
+tokio = { workspace = true, features = ["test-util", "sync", "net", "io-util"] }
 
 [lints]
 workspace = true
