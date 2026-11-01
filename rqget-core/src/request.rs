@@ -1,5 +1,7 @@
 //! Validate source encodings and URI behavior before acquiring destination ownership.
 
+use std::net::SocketAddr;
+
 use anyhow::{Context, Result, ensure};
 use camino::Utf8PathBuf;
 use librqbit::Magnet;
@@ -10,6 +12,8 @@ pub struct Request {
     pub source: Source,
     pub output: Utf8PathBuf,
     pub resume: bool,
+    /// Initial connection candidates for metadata and payload; discovery remains enabled.
+    pub peers: Vec<SocketAddr>,
 }
 
 /// A validated local metainfo path or v1 magnet URI.

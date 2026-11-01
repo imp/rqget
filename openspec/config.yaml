@@ -6,6 +6,7 @@ context: |
   Flat workspace members are rqget (CLI), rqget-core (download/destination library),
   and rqget-test (development-only fixtures). Each inherits root dependencies and lints.
   The first-version download/resume, progress, and interruption contract is implemented.
+  Repeatable --peer numeric socket addresses bootstrap metadata and payload while retaining discovery.
   Canonical specs live under openspec/specs; completed change records are archived.
   Track validation evidence in docs/acceptance.md; docs/compatibility-spike.md is historical.
   Keep artifacts in English, with OpenSpec structural headings and SHALL/MUST keywords.

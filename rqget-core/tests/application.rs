@@ -14,6 +14,7 @@ fn request(source: &str, output: &Utf8Path, resume: bool) -> Result<Request> {
         source: Source::parse(source.to_owned())?,
         output: output.to_owned(),
         resume,
+        peers: Vec::new(),
     })
 }
 
@@ -136,6 +137,57 @@ async fn application_resolves_a_magnet_and_downloads_a_single_file() -> Result<(
         assert_eq!(status, 0);
         assert!(snapshots.last().is_some_and(|snapshot| snapshot.finished));
         fixture.assert_payload(destination.path())?;
+        Ok(())
+    }
+    .await;
+    result.and(support::stop(&seeder).await)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn explicit_peers_bootstrap_metainfo_and_magnets_and_repair_resume() -> Result<()> {
+    let fixture = support::Fixture::new(false).await?;
+    let (seeder, peer) = support::seed(&fixture).await?;
+    let root = camino_tempfile::tempdir()?;
+    let input = root.path().join("input.torrent");
+    std::fs::write(&input, fixture.torrent.as_bytes()?)?;
+    let unavailable = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let unavailable_peer = unavailable.local_addr()?;
+    drop(unavailable);
+    let result = async {
+        for (name, source) in [
+            ("metainfo", input.to_string()),
+            ("magnet", fixture.torrent.as_magnet().to_string()),
+        ] {
+            let output = root.path().join(name);
+            let mut initial = request(&source, &output, false)?;
+            initial.peers = vec![unavailable_peer, peer];
+            assert_eq!(
+                timeout(
+                    Duration::from_secs(20),
+                    run(initial, local_options(), pending(), |_| {}),
+                )
+                .await??,
+                0
+            );
+            fixture.assert_payload(&output)?;
+            let record = std::fs::read(output.join(".rqget/state.json"))?;
+            let damaged = output.join(&fixture.files[0].0);
+            let mut bytes = std::fs::read(&damaged)?;
+            bytes[0] ^= 255;
+            std::fs::write(&damaged, bytes)?;
+            let mut resumed = request(&source, &output, true)?;
+            resumed.peers = vec![peer];
+            assert_eq!(
+                timeout(
+                    Duration::from_secs(20),
+                    run(resumed, local_options(), pending(), |_| {}),
+                )
+                .await??,
+                0
+            );
+            fixture.assert_payload(&output)?;
+            assert_eq!(std::fs::read(output.join(".rqget/state.json"))?, record);
+        }
         Ok(())
     }
     .await;

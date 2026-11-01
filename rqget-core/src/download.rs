@@ -74,6 +74,7 @@ pub async fn run(
         Kind::Magnet(uri) => AddTorrent::from_url(uri),
     };
     let destination = Destination::open(&request.output, request.resume)?;
+    let initial_peers = (!request.peers.is_empty()).then_some(request.peers);
     let cancellation = options
         .cancellation_token
         .take()
@@ -92,8 +93,9 @@ pub async fn run(
         // The backend parses untrusted metadata before creating a transfer. A failed
         // task (including a backend parser panic) ends this job and reaches cleanup.
         let resolving_session = std::sync::Arc::clone(&session);
+        let resolving_peers = initial_peers.clone();
         let resolving = AbortOnDropHandle::new(tokio::spawn(async move {
-            resolving_session.add_torrent(source, Some(AddTorrentOptions { list_only: true, sub_folder: Some(String::new()), ..Default::default() })).await
+            resolving_session.add_torrent(source, Some(AddTorrentOptions { list_only: true, initial_peers: resolving_peers, sub_folder: Some(String::new()), ..Default::default() })).await
         }));
         tokio::pin!(resolving);
         let metadata = loop {
@@ -109,7 +111,7 @@ pub async fn run(
         let response = tokio::select! {
             biased;
             result = &mut interrupted => { interrupt_seen = true; return interrupted_status(result); },
-            result = session.add_torrent(AddTorrent::from_bytes(metadata.torrent_bytes), Some(AddTorrentOptions { overwrite, sub_folder: Some(String::new()), ..Default::default() })) => result.context("cannot start payload download")?,
+            result = session.add_torrent(AddTorrent::from_bytes(metadata.torrent_bytes), Some(AddTorrentOptions { overwrite, initial_peers, sub_folder: Some(String::new()), ..Default::default() })) => result.context("cannot start payload download")?,
         };
         let AddTorrentResponse::Added(_, handle) = response else { bail!("engine did not start the requested transfer"); };
         let mut ticks = interval(REFRESH_INTERVAL);

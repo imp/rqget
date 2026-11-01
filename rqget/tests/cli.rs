@@ -59,3 +59,30 @@ fn clap_rejects_non_utf8_sources() -> Result<()> {
     assert_eq!(std::fs::read_dir(root.path())?.count(), 0);
     Ok(())
 }
+
+#[test]
+fn invalid_bootstrap_peers_are_usage_errors_before_destination_creation() -> Result<()> {
+    let root = camino_tempfile::tempdir()?;
+    let destination = root.path().join("must-not-exist");
+    let source = format!("magnet:?xt=urn:btih:{:040x}", 1);
+    for peer in [
+        None,
+        Some("192.168.1.20"),
+        Some("192.168.1.20:65536"),
+        Some("rqbit.local:4240"),
+        Some("2001:db8::20:4240"),
+        Some("http://192.168.1.20:3030"),
+    ] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_rqget"));
+        command.args([source.as_str(), "-o", destination.as_str(), "--peer"]);
+        if let Some(peer) = peer {
+            command.arg(peer);
+        }
+        let output = command.output()?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("--peer"));
+        assert_eq!(output.stdout, [] as [u8; 0]);
+        assert!(!destination.exists());
+    }
+    Ok(())
+}

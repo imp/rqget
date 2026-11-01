@@ -18,12 +18,12 @@ openspec validate --all --strict
 openspec validate --archived --strict
 ```
 
-The workspace test command passed **39 tests**, none ignored: 9 CLI unit tests,
-2 CLI integration tests, 11 core unit tests, 4 application tests, 2 process-lock
+The workspace test command passed **42 tests**, none ignored: 10 CLI unit tests,
+3 CLI integration tests, 11 core unit tests, 5 application tests, 2 process-lock
 tests, 6 interruption tests, and 5 engine compatibility tests. Counts include the
-child-process helper entry points. Strict Clippy and formatting passed. The two
-final small changes (independent shutdown-deadline assertion and fallible stderr
-error reporting) were followed by Clippy, formatting, and their focused tests.
+child-process helper entry points. Strict Clippy and formatting passed. The
+initial milestone had 39 tests; explicit bootstrap-peer support adds three tests
+and extends the existing no-peer cancellation test.
 
 Stable Rust **1.99.1**, `aarch64-apple-darwin`; supported baseline **1.99**.
 `file target/debug/rqget` reports Mach-O arm64, and
@@ -37,7 +37,7 @@ below are relative to the repository root.
 | Behavior / scenarios | Durable proof |
 | --- | --- |
 | Local file (any suffix), magnet metadata, all files and relative layout, verified completion | `rqget-core/tests/application.rs`: `application_resolves_a_magnet_and_downloads_a_single_file`, `application_downloads_then_rechecks_and_repairs_explicit_resume`; `rqget-core/tests/librqbit_compat.rs` also compares exact single/multi-file bytes and preflight without payload writes. |
-| Unsupported sources, file selection including encoded keys, invalid invocation, help/version without side effects | `rqget/tests/cli.rs`: `cli_rejects_invalid_invocations_without_destination_side_effects`; source-validation unit tests in `rqget-core/src/source.rs`. |
+| Unsupported sources, file selection including encoded keys, invalid invocation, help/version without side effects | `rqget/tests/cli.rs`: `cli_rejects_invalid_invocations_without_destination_side_effects`; source validation in `rqget-core/src/request.rs`. |
 | Unicode/spaces; non-UTF-8 supplied/canonical/payload paths | CLI non-UTF-8 test, application multi-file fixture, and `rqget-core/src/destination/tests.rs`: `canonical_root_must_remain_utf8`, `destination_preflight_rejects_unsafe_metadata_without_payload_writes`. macOS can reject invalid filename bytes itself; the test accepts that specific OS refusal. |
 | New/empty destination, unrelated files, record-publication failure | Destination tests: `destination_lock_records_and_resume_are_explicit`, `new_transfer_preserves_unrelated_files`, `failed_record_publication_never_creates_payload_files`. |
 | Traversal, symlinks, reserved state, duplicates/prefix conflicts, native aliases/hard links | Destination preflight, symlink, hard-link and native-alias tests; engine compatibility probes preserve outside sentinels. |
@@ -53,6 +53,38 @@ below are relative to the repository root.
 | Metadata/checking/download Ctrl-C, Unix SIGTERM, lock release and retained record | `rqget/src/tests.rs`: `signals_reach_metadata_checking_and_transfer_processes` sends real SIGINT/SIGTERM to child processes; asserts 130/143, exit and released lock. Metadata interruption leaves no payload or record. |
 | Session startup cancellation, interruption during shutdown, ownership through cleanup | Core interruption tests cancel stalled startup HTTP I/O and late shutdown; partial-download observer proves lock ownership at stopping. |
 | Shutdown deadline cannot succeed | Core unit tests `shutdown_timeout_reports_failure_at_the_deadline` and `normal_shutdown_waits_for_completion` use controlled time; `interruption_cannot_masquerade_as_success` rejects a zero interruption status. |
+
+## Explicit bootstrap peers
+
+The `add-bootstrap-peers` change adds repeatable `--peer <IP:PORT>` to seed
+metadata and payload discovery from a known rqbit or other BitTorrent peer.
+Numeric IPv4 and bracketed IPv6 are accepted; ordinary discovery stays enabled.
+Peer hints are invocation-only, so the same destination can resume using a
+different address without changing its ownership record. No dependencies or state
+format changes were needed.
+
+- `rqget/src/cli.rs` tests the absent option and repeated IPv4/IPv6 addresses
+  through parsing and conversion into the core request.
+- `rqget/tests/cli.rs` proves malformed addresses, missing ports/values, hostnames,
+  unbracketed IPv6, and HTTP URLs produce status 2 before destination creation.
+- `explicit_peers_bootstrap_metainfo_and_magnets_and_repair_resume` in
+  `rqget-core/tests/application.rs` downloads both source forms with trackers,
+  DHT, and local-service discovery disabled. An unavailable candidate precedes
+  the working loopback seeder; each transfer completes with exact bytes. Each
+  source then resumes after deliberate corruption, repairs every byte, and
+  preserves the original ownership record while using a different peer list.
+- `no_peer_transfer_waits_until_cancelled_and_retains_its_record` also covers an
+  explicitly unavailable peer, proving status 130 and retained state.
+
+Reproduce the transfer proof with:
+
+```sh
+cargo +stable test --locked -p rqget-core --test application explicit_peers_bootstrap_metainfo_and_magnets_and_repair_resume
+```
+
+The test uses an embedded librqbit loopback seeder; it does not claim live
+validation against the user's LAN rqbit installation. README documents the
+command and how to identify rqbit's TCP peer port.
 
 ## Controlled transfer reproduction
 

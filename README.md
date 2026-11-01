@@ -41,6 +41,25 @@ HTTP payload URLs, pure v2 torrents, zero-length payloads, file selection, and
 continued seeding are outside this version's scope. A torrent with no peers waits
 and remains interruptible; there is no overall download timeout.
 
+## Download from a LAN seeder
+
+For an rqbit server seeding the same torrent, pass its LAN IP and TCP peer port:
+
+```sh
+cargo run -- input.torrent -o ./download --peer 192.168.1.20:4240
+cargo run -- 'magnet:?xt=urn:btih:...' -o ./download --peer 192.168.1.20:4240
+cargo run -- input.torrent -o ./download --resume --peer 192.168.1.20:4240
+```
+
+Replace the example address with your server's address. In rqbit's logs, look for
+`Listening on TCP … for incoming peer connections`. Use that peer port and keep
+the matching torrent active for seeding. The web/API port serves a different protocol.
+
+Repeat `--peer` for multiple candidates. Numeric IPv6 uses brackets, for example
+`--peer '[2001:db8::20]:4240'`. Hostnames are not accepted. The supplied peers are
+used for both magnet metadata and payload transfer; normal discovery remains
+enabled. They are connection hints, not an exclusive peer list or saved state.
+
 ## Development
 
 The workspace has three flat sibling directories:
@@ -94,8 +113,8 @@ Jiff is the preferred choice if calendar/timestamp/timezone handling becomes
 necessary. There is no direct calendar-time dependency today. librqbit's DHT
 dependency brings chrono transitively. Miette is not in the resolved graph.
 
-The workspace has 39 passing tests, including real process signals, controlled
-timers, and terminal rendering. The [compatibility report](docs/compatibility-spike.md)
+The workspace has 42 passing tests, including direct bootstrap peers, real process
+signals, controlled timers, and terminal rendering. The [compatibility report](docs/compatibility-spike.md)
 records the initial dependency investigation; the [acceptance report](docs/acceptance.md)
 records the completed application checks and their limits. All packages remain
 unpublished; the project license must be selected before distribution.

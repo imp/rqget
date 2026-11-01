@@ -22,6 +22,7 @@ fn request(source: String, destination: &camino::Utf8Path, resume: bool) -> Resu
         source: Source::parse(source)?,
         output: destination.to_owned(),
         resume,
+        peers: Vec::new(),
     })
 }
 
@@ -87,20 +88,22 @@ async fn interruption_cannot_masquerade_as_success() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn no_peer_transfer_waits_until_cancelled_and_retains_its_record() -> Result<()> {
     let fixture = Fixture::new(true).await?;
-    let root = camino_tempfile::tempdir()?;
-    let input = root.path().join("input.torrent");
-    std::fs::write(&input, fixture.torrent.as_bytes()?)?;
-    let destination = root.path().join("out");
-    let (signal, receive) = oneshot::channel();
-    let mut signal = Some(signal);
-    let interrupted = async { receive.await.context("waiting-state observer dropped") };
-    let status = timeout(
-        Duration::from_secs(5),
-        run(
-            request(input.to_string(), &destination, false)?,
-            options(),
-            interrupted,
-            |event| {
+    let unavailable = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let unavailable_peer = unavailable.local_addr()?;
+    drop(unavailable);
+    for peers in [vec![], vec![unavailable_peer]] {
+        let root = camino_tempfile::tempdir()?;
+        let input = root.path().join("input.torrent");
+        std::fs::write(&input, fixture.torrent.as_bytes()?)?;
+        let destination = root.path().join("out");
+        let mut request = request(input.to_string(), &destination, false)?;
+        request.peers = peers;
+        let (signal, receive) = oneshot::channel();
+        let mut signal = Some(signal);
+        let interrupted = async { receive.await.context("waiting-state observer dropped") };
+        let status = timeout(
+            Duration::from_secs(5),
+            run(request, options(), interrupted, |event| {
                 if let Event::Transfer(snapshot) = event
                     && !snapshot.checking
                     && snapshot.connected_peers == 0
@@ -109,12 +112,12 @@ async fn no_peer_transfer_waits_until_cancelled_and_retains_its_record() -> Resu
                 {
                     let _ = signal.send(130);
                 }
-            },
-        ),
-    )
-    .await??;
-    assert_eq!(status, 130);
-    assert!(destination.join(".rqget/state.json").exists());
+            }),
+        )
+        .await??;
+        assert_eq!(status, 130);
+        assert!(destination.join(".rqget/state.json").exists());
+    }
     Ok(())
 }
 
