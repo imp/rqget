@@ -56,7 +56,8 @@ below are relative to the repository root.
 
 ## Explicit bootstrap peers
 
-The `add-bootstrap-peers` change adds repeatable `--peer <IP:PORT>` to seed
+The [add-bootstrap-peers change](../openspec/changes/archive/2026-11-01-add-bootstrap-peers/proposal.md)
+adds repeatable `--peer <IP:PORT>` to seed
 metadata and payload discovery from a known rqbit or other BitTorrent peer.
 Numeric IPv4 and bracketed IPv6 are accepted; ordinary discovery stays enabled.
 Peer hints are invocation-only, so the same destination can resume using a
