@@ -18,12 +18,20 @@ openspec validate --all --strict
 openspec validate --archived --strict
 ```
 
-The workspace test command passed **42 tests**, none ignored: 10 CLI unit tests,
+The bootstrap-peer milestone workspace test command passed **42 tests**, none ignored: 10 CLI unit tests,
 3 CLI integration tests, 11 core unit tests, 5 application tests, 2 process-lock
 tests, 6 interruption tests, and 5 engine compatibility tests. Counts include the
 child-process helper entry points. Strict Clippy and formatting passed. The
 initial milestone had 39 tests; explicit bootstrap-peer support adds three tests
 and extends the existing no-peer cancellation test.
+
+A later terminal-output correction adds
+`destination_and_formatted_logs_remain_whole_lines_beside_the_bar`. It reproduces
+the escaped destination appearing one character per line before the fix, using
+the same in-memory terminal for both status output and the progress bar. The
+writer now suspends the bar for the entire formatted message. The regression
+and all 14 CLI tests pass with `cargo +stable test --locked -p rqget --all-targets`;
+strict workspace Clippy and formatting also pass. The core is unchanged.
 
 Stable Rust **1.99.1**, `aarch64-apple-darwin`; supported baseline **1.99**.
 `file target/debug/rqget` reports Mach-O arm64, and
@@ -44,7 +52,7 @@ below are relative to the repository root.
 | Concurrent writers, directory aliases, process exit/kill releases lock | `rqget-core/tests/file_lock.rs`; destination alias/lock tests; CLI signal tests reacquire ownership after child exit. The stable lock inode is retained. |
 | Explicit matching resume; missing/corrupt/unsupported/mismatched records; missing flag | Destination record/resume tests and application download/recheck test preserve existing bytes on rejected operations. |
 | Interrupted payload, valid-piece reuse, corruption repair, complete peerless recheck | `rqget-core/tests/interruption.rs`: `interrupted_partial_download_keeps_valid_pieces_and_resumes`; application download/recheck/repair test; engine compatibility rechecks. |
-| Interactive progress, checking versus traffic, retained-byte rates, unknown ETA/totals, quiet, readable logs | Six tests in `rqget/src/progress/tests.rs`, including indicatif `InMemoryTerm` rendering of the actual bar, percentage, engine ETA, and diagnostic coordination. |
+| Interactive progress, checking versus traffic, retained-byte rates, unknown ETA/totals, quiet, readable logs | Renderer tests in `rqget/src/progress/tests.rs`, including indicatif `InMemoryTerm` rendering of the actual bar, percentage, engine ETA, and diagnostic coordination. |
 | Redirected plain output and 30-second heartbeat without backlog | `redirected_heartbeat_is_periodic_and_does_not_replay_missed_ticks`; process tests capture plain stderr and verify clean stdout. |
 | No peers waits and remains interruptible | `no_peer_transfer_waits_until_cancelled_and_retains_its_record`; progress waiting/unknown-total test. |
 | Monotonic elapsed/refresh/shutdown despite wall-clock changes | Production timing uses only standard Duration and Tokio Instant/interval/timeout. Paused Tokio-time tests advance heartbeat/deadline independently of wall time; no system clock is changed. |

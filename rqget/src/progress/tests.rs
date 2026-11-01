@@ -1,5 +1,20 @@
 use super::*;
-use indicatif::InMemoryTerm;
+use indicatif::{InMemoryTerm, TermLike};
+
+struct TerminalWriter(InMemoryTerm);
+
+impl Write for TerminalWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let text = std::str::from_utf8(bytes).map_err(io::Error::other)?;
+        // A normal TTY translates line feeds to carriage-return/line-feed.
+        self.0.write_str(&text.replace('\n', "\r\n"))?;
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.flush()
+    }
+}
 
 #[derive(Clone, Default)]
 struct Capture(Arc<Mutex<Vec<u8>>>);
@@ -161,5 +176,42 @@ async fn terminal_bar_renders_percentage_and_engine_estimates() -> Result<()> {
     progress.finish(&Ok(0), camino::Utf8Path::new("out"));
     assert_eq!(terminal.contents().trim(), "");
     assert!(capture.text().contains("Done"));
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn destination_and_formatted_logs_remain_whole_lines_beside_the_bar() -> Result<()> {
+    let terminal = InMemoryTerm::new(12, 160);
+    let mut progress = Progress::with_output(
+        false,
+        true,
+        ProgressDrawTarget::term_like(Box::new(terminal.clone())),
+        Box::new(TerminalWriter(terminal.clone())),
+    )?;
+    progress.bar.disable_steady_tick();
+    progress.bar.force_draw();
+    let destination = camino::Utf8Path::new("/tmp/download é/line\nbreak");
+    progress.destination(destination);
+    progress.event(Event::Metadata);
+    progress.bar.force_draw();
+    let message = "diagnostic";
+    writeln!(progress.writer(), "engine {message}: {}", 42)?;
+    progress.bar.force_draw();
+    let screen = terminal.contents();
+    assert!(
+        screen
+            .lines()
+            .any(|line| line == "Destination: /tmp/download é/line\\nbreak"),
+        "{screen}"
+    );
+    assert!(
+        screen.lines().any(|line| line == "engine diagnostic: 42"),
+        "{screen}"
+    );
+    assert!(screen.contains("Resolving metadata"), "{screen}");
+    progress.finish(&Ok(0), destination);
+    let screen = terminal.contents();
+    assert!(screen.contains("Done"), "{screen}");
+    assert!(!screen.contains("Resolving metadata"), "{screen}");
     Ok(())
 }

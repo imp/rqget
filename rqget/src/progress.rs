@@ -224,6 +224,12 @@ pub(crate) struct LogWriter {
 }
 
 impl Write for LogWriter {
+    fn write_fmt(&mut self, args: std::fmt::Arguments<'_>) -> io::Result<()> {
+        // Formatters may emit one character at a time. Keep the bar suspended
+        // until the entire message is written rather than redrawing per fragment.
+        self.bar.suspend(|| self.output.lock().write_fmt(args))
+    }
+
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.bar.suspend(|| self.output.lock().write_all(bytes))?;
         Ok(bytes.len())

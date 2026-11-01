@@ -113,8 +113,8 @@ Jiff is the preferred choice if calendar/timestamp/timezone handling becomes
 necessary. There is no direct calendar-time dependency today. librqbit's DHT
 dependency brings chrono transitively. Miette is not in the resolved graph.
 
-The workspace has 42 passing tests, including direct bootstrap peers, real process
-signals, controlled timers, and terminal rendering. The [compatibility report](docs/compatibility-spike.md)
+Tests cover direct bootstrap peers, real process signals, controlled timers,
+and terminal rendering. The [compatibility report](docs/compatibility-spike.md)
 records the initial dependency investigation; the [acceptance report](docs/acceptance.md)
 records the completed application checks and their limits. All packages remain
 unpublished; the project license must be selected before distribution.
