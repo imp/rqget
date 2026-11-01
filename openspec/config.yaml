@@ -1,0 +1,19 @@
+schema: spec-driven
+
+context: |
+  rqget is a Rust 2024 CLI download tool based on librqbit.
+  The repository uses Jujutsu; use jj for version-control operations.
+  The binary remains the Cargo starter; the dependency compatibility spike is implemented.
+  Track implementation and validation evidence in the change tasks and docs/compatibility-spike.md.
+  Keep artifacts in English, with OpenSpec structural headings and SHALL/MUST keywords.
+  Prefer the existing torrent engine and standard library over new infrastructure.
+  Use the codebase knowledge graph first, with coverage checks and source fallback.
+
+rules:
+  proposal:
+    - State the first usable scope and explicit non-goals.
+  design:
+    - Distinguish verified dependency behavior from implementation proof still required.
+    - Make file ownership, resume, cancellation, and completion invariants explicit.
+  tasks:
+    - Include observable verification in every task and keep implementation tasks unchecked until proved.
